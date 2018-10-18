@@ -35,7 +35,7 @@ namespace MT4SignalRServer.Events
         private Dictionary<string, object> _eventAndHandlerMapping;
         private TaskFactory taskFactory;
 
-        private EventBus()
+        public EventBus()
         {
             _eventAndHandlerMapping = new Dictionary<string, object>();
             taskFactory = new TaskFactory();
