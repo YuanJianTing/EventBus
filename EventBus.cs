@@ -11,7 +11,7 @@ namespace MT4SignalRServer.Events
 {
     public class EventBus
     {
-        private static object obj = new object();
+       private static object obj = new object();
 
         private static EventBus eventBus;
         public static EventBus Default
@@ -34,13 +34,20 @@ namespace MT4SignalRServer.Events
         /// </summary>
         private Dictionary<string, object> _eventAndHandlerMapping;
         private TaskFactory taskFactory;
+        private SynchronizationContext m_context;
 
         public EventBus()
         {
             _eventAndHandlerMapping = new Dictionary<string, object>();
             taskFactory = new TaskFactory();
         }
+        public EventBus(EventBusBuilder builder)
+        {
+            _eventAndHandlerMapping = new Dictionary<string, object>();
+            taskFactory = new TaskFactory();
+            m_context = builder.context;
 
+        }
 
 
         public void Register(object cla)
@@ -83,7 +90,40 @@ namespace MT4SignalRServer.Events
                             {
                                 if (IsEventBusMethodParam(method, eventData.GetType()))
                                 {
-                                    taskFactory.StartNew(()=> method.Invoke(item, new object[] { eventData }));
+                                    /**
+                                     * 1、获取方法 EventMethod 特性 
+                                     * 2、根据ThreadMode 属性判断执行线程 如果 m_context 为空则忽略
+                                     * 
+                                     * **/
+                                    object[] objs = method.GetCustomAttributes(typeof(EventMethodAttribute),true);
+                                    foreach (var attr in objs)
+                                    {
+                                        if(attr is EventMethodAttribute)
+                                        {
+                                            EventMethodAttribute attribute = attr as EventMethodAttribute;
+                                            if (attribute.ThreadMode == ThreadMode.MAIN)
+                                            {
+                                                if (m_context != null)
+                                                {
+                                                    m_context.Post((o) =>
+                                                    {
+                                                        method.Invoke(item, new object[] { eventData });
+                                                    }, null);
+                                                }else
+                                                    method.Invoke(item, new object[] { eventData });
+                                            }
+                                            else if (attribute.ThreadMode == ThreadMode.ASYNC)
+                                            {
+                                                taskFactory.StartNew(() => method.Invoke(item, new object[] { eventData }));
+                                            }
+                                            else
+                                            {
+                                                method.Invoke(item, new object[] { eventData });
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    
                                 }
                             }
                         }
@@ -92,7 +132,7 @@ namespace MT4SignalRServer.Events
             }
             catch (Exception ex)
             {
-                MyLog4Net.LogInfo("EventBus.Trigger()",ex);
+                //MyLog4Net.LogInfo("EventBus.Trigger()",ex);
             }
         }
 
@@ -123,12 +163,14 @@ namespace MT4SignalRServer.Events
             MethodInfo[] methodInfos = obj.GetType().GetMethods();
             foreach (MethodInfo item in methodInfos)
             {
-                object[] attrs = item.GetCustomAttributes(typeof(EventMethod), false);
+                object[] attrs = item.GetCustomAttributes(typeof(EventMethodAttribute), false);
                 if (attrs != null && attrs.Length > 0)
                     result.Add(item);
             }
             return result;
         }
+
+        public static EventBusBuilder Builder => new EventBusBuilder();
 
 
     }
